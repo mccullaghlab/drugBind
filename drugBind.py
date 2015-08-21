@@ -4,7 +4,7 @@ import numpy
 from sklearn.svm import SVR
 from sklearn.preprocessing import normalize
 from sklearn.preprocessing import scale
-from sklearn.linear_model import Lasso
+import gaussian
 
 
 debug = True
@@ -114,13 +114,18 @@ def getFeatures(fileName):
         print "{} have KI values listed in the database.".format(len(normalized_y))
         print "{} do not have KI values listed in the database.\n".format(len(newData))
 
-    return standardized_x, standardized_y, newData
+    return normalized_x, training_y, newData
 
 
 def main():
 
     if debug:
         print "\n\n\tdrugBind.py"
+
+    gaussian.setNumMols()
+    gaussian.makeAllGinps()
+    gaussian.runGaussianOnAllGinps()
+
     # obtain training data
     try:
         train_x, train_y, newData = getFeatures(featuresFilename)
