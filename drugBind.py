@@ -26,6 +26,12 @@ def makeFeatures(fileName):
     global featuresFile, numFeatures
     featuresFile = open(fileName, 'w')      # Molecule features output file
 
+    # run gaussian jobs
+    gaussian.setNumMols()
+    gaussian.makeAllGinps()
+    gaussian.runGaussianOnAllGinps()
+
+    # open database file
     drugDB = Chem.SDMolSupplier("FKBP12_binders.sdf")
 
     if debug:
@@ -36,12 +42,19 @@ def makeFeatures(fileName):
 
     # Select features of interest
     for mol in drugDB:
+	gaussian_log_file = "gaussian_files/drug_"+str(molCount)+".log"
+	dipole, quadrupole, octapole, hexadecapole, dg_solv = gaussian.parseGaussianLog(gaussian_log_file)
         #text += "{}\n".format(molCount)
         text += "{}\n".format(AllChem.ComputeMolVolume(mol))
         text += "{}\n".format(MolSurf.pyLabuteASA(mol))
         text += "{}\n".format(mol.GetNumAtoms())
         text += "{}\n".format(mol.GetNumBonds())
         text += "{}\n".format(mol.GetNumHeavyAtoms())
+	text += "{}\n".format(dipole)
+	text += "{}\n".format(quadrupole)
+	text += "{}\n".format(octapole)
+	text += "{}\n".format(hexadecapole)
+	text += "{}\n".format(dg_solv)
         text += "\nKI: {}\n".format(mol.GetProp("Ki (nM)"))
 
         text += "\n"        # Use a blank line to divide molecule data
@@ -122,11 +135,6 @@ def main():
     if debug:
         print "\n\n\tdrugBind.py"
 
-    gaussian.setNumMols()
-    gaussian.makeAllGinps()
-    gaussian.runGaussianOnAllGinps()
-
-    # obtain training data
     try:
         train_x, train_y, newData = getFeatures(featuresFilename)
     except IOError:
