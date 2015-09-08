@@ -21,13 +21,11 @@ def setNumMols(dbName="FKBP12_binders.sdf"):
     for mol in drugDB:
         if mol != lastMol:
             lastMol = mol
-            print "Molecule: ", count+1, "mol.GetProp(Ki (nM))", mol.GetProp("Ki (nM)"), "\n"
 	    try:
 		mol.GetProp("Ki (nM)")
             except KeyError, e:	
 	        pass
             else:
-	        print "Molecule ", count+1, "has a KI\n"
                 ginpName = "drug_{}.ginp".format(numMols)
                 ginps.append(ginpName)
                 numMols += 1
@@ -41,7 +39,7 @@ def makeAllGinps(dbName="FKBP12_binders.sdf"):
     count = 0
     lastMol = None
     for mol in drugDB:
-        if (count > 0 and count < 500):
+        if (count > 22):
             mol = Chem.AddHs(mol)
             if mol != lastMol:
                 lastMol = mol
@@ -52,24 +50,25 @@ def makeAllGinps(dbName="FKBP12_binders.sdf"):
                 else:
                     ginpName = "gaussian_files/drug_{}.ginp".format(count)
                     chkName = "gaussian_files/drug_{}.chk".format(count)
-#                    if os.path.isfile(ginpName) == "False":
-		    if count > 0:
-            	        AllChem.EmbedMolecule(mol)
-            	        AllChem.UFFOptimizeMolecule(mol)
-            	        block = Chem.MolToMolBlock(mol)     # generates string block of molecule coord/bond data
+                    if ( not os.path.isfile(ginpName)):
+#		    if count > -1:
                         ginp = open(ginpName, 'w')
                         text = "%nprocshared=5\n"
                         text += "%mem=4GB\n"
                         text += "%Chk=drug_{}.chk\n".format(count)
-			if os.path.isfile(chkName) == "False":
-                        	text += "# HF/6-31G opt=(maxCycles=50)\n\n"
+			if ( not os.path.isfile(chkName)):
+                        	text += "# HF/6-31G opt=(maxCycles=100)\n\n"
 			else:
-                        	text += "# HF/6-31G geom=Check Guess=Read opt=(maxCycles=50)\n\n"
+                        	text += "# HF/6-31G opt=(maxCycles=100)\n\n"
+#                        	text += "# HF/6-31G geom=Check Guess=Read opt=(maxCycles=50)\n\n"
                         text += "Optimize at HF/6-31G level of theory\n\n"
      
                         text += " 0  1\n"
      
-			if os.path.isfile(chkName) == "False":
+			if ( not os.path.isfile(chkName)):
+            	            AllChem.EmbedMolecule(mol)
+            	            AllChem.UFFOptimizeMolecule(mol)
+            	            block = Chem.MolToMolBlock(mol)     # generates string block of molecule coord/bond data
                             bCount = 0
                             line = ""
                             for ch in block:
@@ -90,7 +89,7 @@ def makeAllGinps(dbName="FKBP12_binders.sdf"):
                         text += "%mem=4GB\n"
                         text += "%Chk=drug_{}.chk\n".format(count)
                         text += "# B3LYP/6-31G(d,p) opt Geom=Check pop=(MK,saveESP)\n\n"
-                        text += "Compute solvated energy\n\n"
+                        text += "Second optimization at B3LYP level of theory\n\n"
                         text += " 0  1\n"
                         text += "\n--Link1--\n"
                         text += "%nprocshared=5\n"
@@ -112,31 +111,49 @@ def makeAllGinps(dbName="FKBP12_binders.sdf"):
 
 def runGaussianOnAllGinps():
     count = 0
+
+    rand_ints = numpy.arange(len(ginps),dtype=int)
+    count = 0 
+    # shuffle the array matrix
     for ginp in ginps:
-        if (count > 0 and count < 500):
-#         print "Optimizing drug ", count, "\n"
-             os.system("cd gaussian_files; g09 {} > {}.log; rm -f *.rwf ;cd ..".format(ginp, ginp[:-5]))
-             sys.stdout.write("Running Gaussian on all inputs: {0:.2f}% Complete\r".format((float(count) / float(500)) * 100))
-             sys.stdout.flush()
+	# pick two random array elements and swap
+        int1 = numpy.random.randint(0,len(ginps))
+        int2 = numpy.random.randint(0,len(ginps))
+	temp = rand_ints[int1]
+        rand_ints[int1] = rand_ints[int2]
+        rand_ints[int2] = temp
+    	sys.stdout.write("Random number generation: {0:.2f}% Complete\r".format((float(count) / float(len(ginps))) * 100))
+    	sys.stdout.flush()
         count += 1
 
-def parseGaussianLog(fileName):
+ #   for ginp in ginps:
+    for i in range(len(ginps)):
+        if rand_ints[i] > 22:
+ 		print ginps[rand_ints[i]], "\n"
+	    	sys.stdout.write("cd gaussian_files; g09 {} > {}.log; rm -f *.rwf ;cd ..".format(ginps[rand_ints[i]], ginps[rand_ints[i]][:-5]))
+    		sys.stdout.flush()
+    		os.system("cd gaussian_files; g09 {} > {}.log; rm -f *.rwf ;cd ..".format(ginps[rand_ints[i]], ginps[rand_ints[i]][:-5]))
+    		sys.stdout.write("Running Gaussian on all inputs: {0:.2f}% Complete\r".format((float(count) / float(len(ginps)-23.0)) * 100))
+    		sys.stdout.flush()
 
-	glog = 	open(fileName,"r")
-	glog_lines = glog.readlines()
-	glog.close()
+def parseGaussianLog(file_name):
 
-	converged = checkConvergence(glog_lines)
+	if os.path.isfile(file_name):
+		glog = 	open(file_name,"r")
+		glog_lines = glog.readlines()
+		glog.close()
+
+		converged = checkConvergence(glog_lines)
+	else:
+		converged = "False"
 
 	if converged == "True":
-		print "Converged\n"
 		dipole = getDipole(glog_lines)
 		quadrupole = getQuadrupole(glog_lines)
 		octapole = getOctapole(glog_lines)
 		hexadecapole = getHexadecapole(glog_lines)
 		DGSolv = getDGSolv(glog_lines)
 	else:
-		print "Did not converge\n"
                 dipole = 0
                 quadrupole = 0
                 octapole = 0
@@ -144,7 +161,7 @@ def parseGaussianLog(fileName):
                 DGSolv = 0
 
 
-	return dipole, quadrupole, octapole, hexadecapole, DGSolv
+	return converged, dipole, quadrupole, octapole, hexadecapole, DGSolv
 
 # determine if geometry optimizations in gaussian converged.  Note this checks for two subsequent geometry optimizations
 def checkConvergence(log_lines):
@@ -294,7 +311,7 @@ def getDGSolv(log_lines):
 			if count > 1:
 				break
 
-
+	# compute the difference between the two energies and convert to kcal/mol
 	return (energy[0]-energy[1])*627.5095
 
 

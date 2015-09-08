@@ -2,6 +2,7 @@ __author__ = 'Greg Poisson'
 
 import numpy
 from sklearn.svm import SVR
+from sklearn.linear_model import Lasso
 from sklearn.preprocessing import normalize
 from sklearn.preprocessing import scale
 import gaussian
@@ -20,6 +21,7 @@ def makeFeatures(fileName):
 
 
     from rdkit import Chem
+    from rdkit.Chem import Fragments
     from rdkit.Chem import AllChem
     from rdkit.Chem import MolSurf
 
@@ -27,9 +29,9 @@ def makeFeatures(fileName):
     featuresFile = open(fileName, 'w')      # Molecule features output file
 
     # run gaussian jobs
-    gaussian.setNumMols()
-    gaussian.makeAllGinps()
-    gaussian.runGaussianOnAllGinps()
+#    gaussian.setNumMols()
+#    gaussian.makeAllGinps()
+#    gaussian.runGaussianOnAllGinps()
 
     # open database file
     drugDB = Chem.SDMolSupplier("FKBP12_binders.sdf")
@@ -39,31 +41,51 @@ def makeFeatures(fileName):
 
     text = ""       # Placeholder for feature data
     molCount = 0
+    convergedCount = 0
+
+    # load fragment descriptor
+    Fragments._LoadPatterns(fileName='/usr/local/anaconda/pkgs/rdkit-2015.03.1-np19py27_0/share/RDKit/Data/FragmentDescriptors.csv')
 
     # Select features of interest
     for mol in drugDB:
-	gaussian_log_file = "gaussian_files/drug_"+str(molCount)+".log"
-	dipole, quadrupole, octapole, hexadecapole, dg_solv = gaussian.parseGaussianLog(gaussian_log_file)
-        #text += "{}\n".format(molCount)
-        text += "{}\n".format(AllChem.ComputeMolVolume(mol))
-        text += "{}\n".format(MolSurf.pyLabuteASA(mol))
-        text += "{}\n".format(mol.GetNumAtoms())
-        text += "{}\n".format(mol.GetNumBonds())
-        text += "{}\n".format(mol.GetNumHeavyAtoms())
-	text += "{}\n".format(dipole)
-	text += "{}\n".format(quadrupole)
-	text += "{}\n".format(octapole)
-	text += "{}\n".format(hexadecapole)
-	text += "{}\n".format(dg_solv)
-        text += "\nKI: {}\n".format(mol.GetProp("Ki (nM)"))
+	if molCount > -1:
+		gaussian_log_file = "gaussian_files/drug_"+str(molCount)+".log"
+		converged, dipole, quadrupole, octapole, hexadecapole, dg_solv = gaussian.parseGaussianLog(gaussian_log_file)
+		if converged == "True":
+		#text += "{}\n".format(molCount)
+			text += "{}\n".format(AllChem.ComputeMolVolume(mol))
+			text += "{}\n".format(MolSurf.pyLabuteASA(mol))
+			text += "{}\n".format(mol.GetNumAtoms())
+			text += "{}\n".format(mol.GetNumBonds())
+			text += "{}\n".format(mol.GetNumHeavyAtoms())
+			text += "{}\n".format(dipole)
+			text += "{}\n".format(quadrupole)
+			text += "{}\n".format(octapole)
+			text += "{}\n".format(hexadecapole)
+			text += "{}\n".format(dg_solv)
+			text += "{}\n".format(Fragments.fr_Al_OH(mol)) # aliphatic alcohols
+			text += "{}\n".format(Fragments.fr_Ar_OH(mol)) # aromatic alcohols
+			text += "{}\n".format(Fragments.fr_ketone(mol)) # number of ketones
+			text += "{}\n".format(Fragments.fr_ether(mol)) # number of ether oxygens
+			text += "{}\n".format(Fragments.fr_ester(mol)) # number of esters
+			text += "{}\n".format(Fragments.fr_aldehyde(mol)) # number of aldehydes
+			text += "{}\n".format(Fragments.fr_COO(mol)) # number of carboxylic acids
+			text += "{}\n".format(Fragments.fr_benzene(mol)) # number of benzenes
+                        text += "{}\n".format(Fragments.fr_NH0(mol)) # number of tertiary amines
+                        text += "{}\n".format(Fragments.fr_NH1(mol)) # number of secondary amines
+                        text += "{}\n".format(Fragments.fr_NH2(mol)) # number of primary amines
+                        text += "{}\n".format(Fragments.fr_halogen(mol)) # number of halogens
+			text += "\nKI: {}\n".format(mol.GetProp("Ki (nM)"))
+			text += "\n"        # Use a blank line to divide molecule data
+			
+			featuresFile.write(text)
+			text = ""
+			convergedCount += 1
+	else:
+		break
+       	molCount += 1
 
-        text += "\n"        # Use a blank line to divide molecule data
-
-        featuresFile.write(text)
-        text = ""
-
-        molCount += 1
-
+    print "Number of molecules with converged gaussian log files:", convergedCount, "\n"
     featuresFile.close()
 
 
@@ -107,24 +129,26 @@ def getFeatures(fileName):
     #print (training_y)
 
     normalized_x = numpy.transpose(normalize(training_x))
-    normalized_y = normalize(training_y)[0]
+#    normalized_y = normalize(training_y)[0]
 
     #print normalized_x
     #print normalized_y
 
     standardized_x = numpy.transpose(scale(training_x))
-    standardized_y = scale(training_y)
+#    standardized_y = scale(training_y)
 
     training_x = numpy.transpose(training_x)
 
     newData = numpy.asarray(molsWithoutKI)
 
-    assert len(normalized_x) == len(normalized_y)
-    assert len(standardized_x) == len(standardized_y)
+#    assert len(normalized_x) == len(normalized_y)
+#    assert len(standardized_x) == len(standardized_y)
+    assert len(normalized_x) == len(training_y)
+    assert len(standardized_x) == len(training_y)
 
     if debug:
         print "{} small molecules in database.".format(len(training_x) + len(newData))
-        print "{} have KI values listed in the database.".format(len(normalized_y))
+        print "{} have KI values listed in the database.".format(len(training_y))
         print "{} do not have KI values listed in the database.\n".format(len(newData))
 
     return normalized_x, training_y, newData
@@ -143,7 +167,8 @@ def main():
 
     # machine learning steps
     # fit a SVM model to the data
-    model = SVR()
+    model = SVR(kernel='linear', C=1e8)
+#    model = SVR(kernel='rbf', C=1e3, gamma=0.1)
     model.fit(train_x, train_y)
     if debug:
         print model
@@ -151,13 +176,15 @@ def main():
 
     # make predictions
     expected = train_y
-    predicted = model.predict(train_x)
+    predicted_svr = model.predict(train_x)
+
+    print "SVR coefficients:", model.coef_
 
     # summarize the fit of the model
-    mse = numpy.mean((predicted-expected)**2)
+    mse = numpy.mean((predicted_svr-expected)**2)
     # mean of squared errors
     if debug:
-        print("\n\tMean of squared errors: {}".format(mse))
+        print("\n\tMean of squared errors for SVR: {}".format(mse))
 
 
     '''
@@ -168,5 +195,23 @@ def main():
     '''
     if debug:
         print("\tModel score: {}".format(model.score(train_x, train_y)))
+
+    print("\nRunning Lasso model...\n")
+    model = Lasso()
+    model.fit(train_x, train_y)
+    print "Lasso coefficients:", model.coef_
+    # make predictions
+    expected = train_y
+    predicted_lasso = model.predict(train_x)
+    # summarize the fit of the model
+    mse = numpy.mean((predicted_lasso-expected)**2)
+    # mean of squared errors
+    if debug:
+        print("\n\tMean of squared errors for Lasso: {}".format(mse))
+
+    fit_out = open("actual_v_predicted_kis.dat", "w")
+    for i in range(expected.size):
+        fit_out.write("%10.5f %10.5f %10.5f\n" % (predicted_svr[i], predicted_lasso[i], expected[i]))
+    fit_out.close()
 
 main()
